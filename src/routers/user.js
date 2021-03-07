@@ -1,0 +1,195 @@
+const express = require('express')
+const User = require('../models/users')
+const auth = require('../middleware/auth')
+const router = new express.Router
+const multer = require('multer')
+const {trigger} = require('../mails/account')
+
+
+router.get('/tests',(req,res)=>{
+    res.send('From another file.')
+})
+
+router.post("/users", async (req,res)=>{
+    const user = new User(req.body)
+    try{
+        //const token  = await user.generateAuthToken()
+        await user.save()
+        trigger()
+        res.status(201).send(user)
+
+    }catch(e){
+        res.status(400).send(e)
+    }
+
+    // user.save().then(()=>{
+    //     res.send(user)
+    // }).catch((e)=>{
+    //     res.status(400)
+    //     res.send(e)
+
+    // })
+})
+
+// To access user profile after authentication
+router.get("/users/me",auth, async (req,res)=>{
+    res.send(req.user)
+})
+
+// To access all users
+// router.get("/users",auth, async (req,res)=>{
+    
+//     try {
+//         const user = await User.find({})
+//         res.status(200).send(user)
+//     } catch (error) {
+//         res.status(400).send(error)
+//     }
+
+//     // User.find({}).then((users)=>{
+//     //     res.send(users)
+//     // }).catch((e)=>{
+//     //     res.status(500).send(e)
+//     // })
+    
+// })
+//to access user by id  
+// router.get("/users/:id",async (req,res)=>{
+//     const _id = req.params.id
+    
+//     try{
+
+//         const user = await User.findById(_id)
+//         if(!user){
+//             return res.status(404).send()
+//         }
+//         res.send(user)
+//     }
+//     catch(e){
+//         res.status(500).send(e)
+//     }
+//     // User.findById(_id).then((user)=>{
+//     //     if(!user){
+//     //         return res.status(404).send()
+//     //     }
+//     //     res.send(user)
+
+//     // }).catch((e)=>{
+//     //     res.status(500).send(e)
+//     // })
+//     // console.log(req.params)
+// })
+
+router.patch("/users/me",auth ,async (req,res)=>{
+    const updates= Object.keys(req.body)
+    //console.log(updates)
+    const allowedUpdates = ['name', 'age','email', 'password']
+    const isValidOperation = updates.every((update)=>{
+        return allowedUpdates.includes(update)
+
+    })
+    //console.log(isValidOperation)
+    if(!isValidOperation){
+        return res.status(400).send({error: 'Invalid Updates'})
+    }
+
+
+    // const _id = req.params.id
+    try {
+
+        //const user = await User.findById(req.user._id)
+        updates.forEach((update)=>{
+            req.user[update]  = req.body[update]
+        })
+
+        await req.user.save()
+        //const user = await User.findByIdAndUpdate(_id,req.body,{new: true, runValidators: true})
+
+        if(!user){
+            return res.status(404).send()
+        }
+        res.send(req.user)
+    } catch (error) {
+        res.status(404).send(error)
+    }
+})
+
+router.delete('/users/me',auth ,async (req,res)=>{
+    // const _id = req.params.id
+    try {
+        // const user = await User.findByIdAndDelete(req.user._id)
+        // if(!user){
+        //     return res.status(404).send()
+        // }
+        //Alternate code for above
+        await req.user.remove()
+        res.status(200).send(req.user)
+    } catch (error) {
+        console.log(error)
+        res.status(500).send(error)
+    }
+})
+
+router.post('/users/login', async (req,res)=>{
+    try {
+        const user = await User.findByCredentials(req.body.email,req.body.password)
+        const token  = await user.generateAuthToken()
+
+    
+
+        res.status(200).send({user,token})
+    } catch (e) {
+        res.status(400).send(e)
+    }
+})
+
+router.post('/users/logout',auth, async (req,res)=>{
+    try {
+        
+        req.user.tokens = req.user.tokens.filter((token)=>{
+            //console.log(token.token)
+            return token.token != req.token
+
+        })
+        
+        await req.user.save()
+        res.status(200).send()
+    } catch (e) {
+        res.status(503).send(e)
+    }
+})
+
+router.post('/users/logoutall',auth, async (req,res)=>{
+    try {
+        
+        req.user.tokens = []
+        await req.user.save()
+        res.status(200).send()
+    } catch (e) {
+        res.status(503).send(e)
+    }
+})
+
+const upload = multer({
+    
+    limit: {
+        fileSize: 1000000
+    },
+    fileFilter(req,file,cb){
+        if(!file.originalname.match(/\.(jpg|jpeg|png)$/)){
+            return cb(new Error("Please upload an image"))
+        }
+        cb(undefined,true)
+    }
+})
+
+
+router.post('/users/me/avatar',auth,  upload.single('avatar'),async (req,res)=>{
+    req.user.avatar = req.file.buffer
+    await req.user.save()
+    res.send()
+},(error,req,res,next)=>{
+    res.status(400).send({error:error.message})
+})
+
+module.exports = router
